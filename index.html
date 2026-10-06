@@ -1,0 +1,2709 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Arcade - Flappy Bird & Space Waves</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:radial-gradient(circle at 50% 20%,#24104a 0%,#070812 55%,#02030a 100%)}
+body{display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif}
+#game{position:relative;width:min(100vw,500px);height:min(100dvh,760px);overflow:hidden;background:#000}
+canvas{touch-action:none;-webkit-user-select:none;user-select:none;display:block;width:100%;height:100%;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="game"><canvas id="c" width="500" height="760"></canvas></div>
+
+<script>
+"use strict";
+(function(){
+const c=document.getElementById("c"),x=c.getContext("2d"),W=500,H=760;
+
+function roundedRectPath(px,py,w,h,r){
+  r=Math.max(0,Math.min(r,Math.min(w,h)/2));
+  x.beginPath();
+  x.moveTo(px+r,py);
+  x.lineTo(px+w-r,py);
+  x.quadraticCurveTo(px+w,py,px+w,py+r);
+  x.lineTo(px+w,py+h-r);
+  x.quadraticCurveTo(px+w,py+h,px+w-r,py+h);
+  x.lineTo(px+r,py+h);
+  x.quadraticCurveTo(px,py+h,px,py+h-r);
+  x.lineTo(px,py+r);
+  x.quadraticCurveTo(px,py,px+r,py);
+  x.closePath();
+}
+
+let screen="menu",game="",difficulty="",score=0,last=performance.now();
+let suppressPointerUp=false;
+let bird,pipes,pipeTimer,wave,blocks,distance=0;
+let held=false,finishX=6000,trail=[];
+let bbGrid,bbPieces,bbSelected=-1,bbOver=false,bbDragging=false;
+let bbDragX=0,bbDragY=0,bbParticles=[],bbRings=[];
+let flappySkin=0,wavesSkin=0;
+
+const D={
+ easy:{gap:255,speed:160,gravity:1200,flap:-425,spawn:1.40,wave:500,waveSpeed:205},
+ normal:{gap:235,speed:170,gravity:1250,flap:-430,spawn:1.32,wave:555,waveSpeed:225},
+ hard:{gap:215,speed:185,gravity:1320,flap:-440,spawn:1.24,wave:620,waveSpeed:250},
+ extreme:{gap:195,speed:200,gravity:1400,flap:-450,spawn:1.16,wave:690,waveSpeed:280}
+};
+
+const MAPS={
+ easy:[
+  {type:"wall",x:560,top:90,bottom:650,w:38},
+  {type:"spike",x:850,side:"bottom",len:80,w:34},
+  {type:"spike",x:1120,side:"top",len:90,w:34},
+  {type:"wall",x:1390,top:210,bottom:560,w:44},
+  {type:"saw",x:1680,cy:380,r:28},
+  {type:"spike",x:1930,side:"bottom",len:110,w:36},
+  {type:"spike",x:2200,side:"top",len:105,w:36},
+  {type:"wall",x:2470,top:135,bottom:625,w:42},
+  {type:"saw",x:2780,cy:285,r:30},
+  {type:"spike",x:3060,side:"bottom",len:95,w:36},
+  {type:"spike",x:3320,side:"top",len:105,w:36},
+  {type:"wall",x:3600,top:190,bottom:575,w:44},
+  {type:"saw",x:3910,cy:455,r:30},
+  {type:"spike",x:4180,side:"bottom",len:110,w:36},
+  {type:"wall",x:4470,top:120,bottom:640,w:42},
+  {type:"spike",x:4740,side:"top",len:100,w:36}
+ ],
+ normal:[
+  {type:"wall",x:520,top:75,bottom:675,w:42},
+  {type:"spike",x:760,side:"bottom",len:105,w:38},
+  {type:"spike",x:980,side:"top",len:110,w:38},
+  {type:"wall",x:1210,top:245,bottom:525,w:46},
+  {type:"saw",x:1480,cy:350,r:31},
+  {type:"spike",x:1740,side:"bottom",len:130,w:40},
+  {type:"spike",x:1950,side:"top",len:125,w:40},
+  {type:"wall",x:2170,top:120,bottom:630,w:48},
+  {type:"saw",x:2440,cy:500,r:32},
+  {type:"wall",x:2690,top:230,bottom:540,w:48},
+  {type:"spike",x:2960,side:"bottom",len:135,w:40},
+  {type:"spike",x:3180,side:"top",len:130,w:40},
+  {type:"saw",x:3440,cy:300,r:32},
+  {type:"wall",x:3700,top:145,bottom:610,w:48},
+  {type:"spike",x:3970,side:"bottom",len:145,w:42},
+  {type:"spike",x:4210,side:"top",len:135,w:42},
+  {type:"wall",x:4450,top:255,bottom:515,w:50},
+  {type:"saw",x:4720,cy:450,r:32},
+  {type:"wall",x:4990,top:110,bottom:645,w:48},
+  {type:"spike",x:5260,side:"bottom",len:140,w:42}
+ ],
+ hard:[
+  {type:"wall",x:500,top:65,bottom:685,w:46},
+  {type:"spike",x:720,side:"bottom",len:135,w:42},
+  {type:"spike",x:900,side:"top",len:135,w:42},
+  {type:"wall",x:1080,top:275,bottom:495,w:50},
+  {type:"saw",x:1330,cy:350,r:34},
+  {type:"spike",x:1560,side:"bottom",len:150,w:44},
+  {type:"spike",x:1760,side:"top",len:145,w:44},
+  {type:"wall",x:1950,top:105,bottom:645,w:52},
+  {type:"saw",x:2200,cy:500,r:34},
+  {type:"wall",x:2440,top:255,bottom:515,w:52},
+  {type:"spike",x:2690,side:"bottom",len:155,w:46},
+  {type:"spike",x:2880,side:"top",len:150,w:46},
+  {type:"saw",x:3070,cy:275,r:34},
+  {type:"wall",x:3290,top:120,bottom:630,w:52},
+  {type:"spike",x:3540,side:"bottom",len:165,w:46},
+  {type:"spike",x:3750,side:"top",len:160,w:46},
+  {type:"wall",x:3970,top:270,bottom:500,w:54},
+  {type:"saw",x:4210,cy:470,r:35},
+  {type:"wall",x:4450,top:100,bottom:650,w:52},
+  {type:"spike",x:4700,side:"bottom",len:160,w:46},
+  {type:"spike",x:4910,side:"top",len:155,w:46},
+  {type:"saw",x:5130,cy:300,r:35},
+  {type:"wall",x:5370,top:235,bottom:535,w:54}
+ ],
+ extreme:[
+  {type:"wall",x:480,top:55,bottom:695,w:50},
+  {type:"spike",x:680,side:"bottom",len:155,w:48},
+  {type:"spike",x:850,side:"top",len:155,w:48},
+  {type:"wall",x:1020,top:290,bottom:480,w:54},
+  {type:"saw",x:1240,cy:350,r:36},
+  {type:"spike",x:1450,side:"bottom",len:175,w:50},
+  {type:"spike",x:1630,side:"top",len:170,w:50},
+  {type:"wall",x:1810,top:95,bottom:655,w:56},
+  {type:"saw",x:2030,cy:505,r:36},
+  {type:"wall",x:2250,top:270,bottom:500,w:56},
+  {type:"spike",x:2480,side:"bottom",len:175,w:50},
+  {type:"spike",x:2660,side:"top",len:170,w:50},
+  {type:"saw",x:2840,cy:260,r:36},
+  {type:"wall",x:3050,top:100,bottom:650,w:56},
+  {type:"spike",x:3290,side:"bottom",len:180,w:50},
+  {type:"spike",x:3490,side:"top",len:175,w:50},
+  {type:"wall",x:3700,top:285,bottom:485,w:58},
+  {type:"saw",x:3930,cy:465,r:37},
+  {type:"wall",x:4160,top:85,bottom:665,w:56},
+  {type:"spike",x:4400,side:"bottom",len:180,w:50},
+  {type:"spike",x:4600,side:"top",len:175,w:50},
+  {type:"saw",x:4800,cy:300,r:37},
+  {type:"wall",x:5020,top:255,bottom:515,w:58},
+  {type:"spike",x:5260,side:"bottom",len:185,w:50},
+  {type:"spike",x:5470,side:"top",len:180,w:50}
+ ]
+};
+
+(function(){
+ const settings={
+   easy:{minGap:125,ratio:.46,sawR:33,spikeLen:98,spikeW:34},
+   normal:{minGap:112,ratio:.45,sawR:36,spikeLen:118,spikeW:36},
+   hard:{minGap:98,ratio:.44,sawR:40,spikeLen:142,spikeW:39},
+   extreme:{minGap:86,ratio:.43,sawR:44,spikeLen:165,spikeW:42}
+ };
+
+ for(const key of ["easy","normal","hard","extreme"]){
+   const src=MAPS[key],cfg=settings[key],extra=[];
+
+   for(let i=0;i<src.length-1;i++){
+     const a=src[i],b=src[i+1],gap=b.x-a.x;
+
+     if(gap>=cfg.minGap){
+       const xx=a.x+Math.floor(gap*cfg.ratio);
+
+       if(i%3===0){
+         extra.push({type:"saw",x:xx,cy:(i%2)?190:570,r:cfg.sawR});
+       }else if(i%3===1){
+         extra.push({
+           type:"spike",
+           x:xx,
+           side:(i%2)?"top":"bottom",
+           len:cfg.spikeLen,
+           w:cfg.spikeW
+         });
+       }else{
+         extra.push({
+           type:"wall",
+           x:xx,
+           top:(i%2)?250:300,
+           bottom:(i%2)?500:450,
+           w:36
+         });
+       }
+     }
+   }
+
+   MAPS[key]=src.concat(extra).sort((a,b)=>a.x-b.x);
+ }
+})();
+
+function reset(){
+ held=false;
+ score=0;
+ bird={x:115,y:350,vy:0,rot:0};
+ pipes=[];
+ pipeTimer=.65;
+ wave={x:112,y:H/2,vy:0,size:11};
+ blocks=[];
+ distance=0;
+ trail=[];
+ bbSelected=-1;
+ bbOver=false;
+ bbDragging=false;
+ bbDragX=0;
+ bbDragY=0;
+
+ if(game==="block")initBlockBlast();
+
+ if(game==="waves"){
+   blocks=MAPS[difficulty].map(o=>({...o}));
+   const last=blocks[blocks.length-1];
+   finishX=last.x+650;
+ }
+}
+
+function setScreen(s){
+ screen=s;
+ last=performance.now();
+ held=false;
+ bbDragging=false;
+}
+
+function menu(){
+ game="";
+ setScreen("menu");
+}
+
+function pickGame(g){
+ game=g;
+
+ if(g==="block"){
+   difficulty="normal";
+   reset();
+   held=false;
+   setScreen("play");
+ }else{
+   setScreen("appearance");
+ }
+}
+
+function start(d){
+ difficulty=d;
+ reset();
+ held=false;
+ setScreen("play");
+}
+
+function die(){
+ if(screen==="play")setScreen("dead");
+}
+
+function text(t,y,size=28){
+ x.save();
+ x.font="900 "+size+"px Arial";
+ x.textAlign="center";
+ x.shadowColor="#000";
+ x.shadowBlur=9;
+ x.fillStyle="#fff";
+ x.fillText(t,W/2,y);
+ x.shadowColor="#7c3cff";
+ x.shadowBlur=18;
+ x.fillStyle="#ffffff";
+ x.fillText(t,W/2,y);
+ x.restore();
+}
+
+function button(y,label,fill){
+ x.save();
+ const g=x.createLinearGradient(65,y,435,y+62);
+ g.addColorStop(0,fill);
+ g.addColorStop(1,"#ffffff22");
+ x.fillStyle=g;
+ x.strokeStyle="#ffffffcc";
+ x.lineWidth=3;
+ x.shadowColor=fill;
+ x.shadowBlur=18;
+ roundedRectPath(65,y,370,62,18);
+ x.fill();
+ x.stroke();
+ x.shadowBlur=0;
+ x.fillStyle="#ffffff";
+ x.font="900 24px Arial";
+ x.textAlign="center";
+ x.fillText(label,W/2,y+40);
+ x.fillStyle="#ffffff44";
+ roundedRectPath(76,y+8,348,14,8);
+ x.fill();
+ x.restore();
+}
+
+function backButton(){
+ if(screen==="menu")return;
+ x.save();
+ const g=x.createRadialGradient(42,42,3,42,42,30);
+ g.addColorStop(0,"#ffffff33");
+ g.addColorStop(1,"#28183f");
+ x.fillStyle=g;
+ x.strokeStyle="#ffffffcc";
+ x.lineWidth=3;
+ x.shadowColor="#9d5cff";
+ x.shadowBlur=16;
+ x.beginPath();
+ x.arc(42,42,28,0,Math.PI*2);
+ x.fill();
+ x.stroke();
+ x.shadowBlur=0;
+ x.font="900 38px Arial";
+ x.fillStyle="#fff";
+ x.textAlign="center";
+ x.fillText("←",42,54);
+ x.restore();
+}
+
+function hitButton(px,py,w,h,mx,my){
+ return mx>=px&&mx<=px+w&&my>=py&&my<=py+h;
+}
+
+const SKINS=[
+ {name:"GUL",body:"#ffd21f",dark:"#eda900",accent:"#f27b20"},
+ {name:"RÖD",body:"#ff5252",dark:"#c62828",accent:"#ffb13b"},
+ {name:"BLÅ",body:"#35a9ff",dark:"#1765c8",accent:"#d9f4ff"},
+ {name:"GRÖN",body:"#65d84b",dark:"#328b2b",accent:"#fff06a"},
+ {name:"LILA",body:"#b66cff",dark:"#7137c9",accent:"#ffb8f2"},
+ {name:"ROSA",body:"#ff78c8",dark:"#d83c91",accent:"#fff0a8"},
+ {name:"IS",body:"#a8f4ff",dark:"#38a9c8",accent:"#ffffff"},
+ {name:"GULD",body:"#ffc247",dark:"#bd7417",accent:"#fff4b0"},
+ {name:"MÖRK",body:"#45465f",dark:"#17182c",accent:"#a5f5ff"},
+ {name:"REGNBÅGE",body:"#ff6b6b",dark:"#8b45d5",accent:"#ffe66d"}
+];
+
+function drawAppearance(){
+ let g=x.createLinearGradient(0,0,W,H);
+
+ if(game==="flappy"){
+   g.addColorStop(0,"#37bddd");
+   g.addColorStop(1,"#e6fbff");
+ }else{
+   g.addColorStop(0,"#050313");
+   g.addColorStop(.5,"#16072c");
+   g.addColorStop(1,"#03020b");
+ }
+
+ x.fillStyle=g;
+ x.fillRect(0,0,W,H);
+
+ if(game==="flappy"){
+   drawCloud(100,150,1);
+   drawCloud(380,250,.8);
+ }else{
+   drawStars();
+ }
+
+ backButton();
+ text("VÄLJ UTSEENDE",118,30);
+ text(game==="flappy"?"FLAPPY BIRD":"SPACE WAVES",158,17);
+
+ const selected=game==="flappy"?flappySkin:wavesSkin;
+
+ for(let i=0;i<10;i++){
+   const col=i%2;
+   const row=Math.floor(i/2);
+   const bx=42+col*214;
+   const by=195+row*91;
+   const s=SKINS[i];
+
+   x.save();
+   x.fillStyle=i===selected?"#ffffff33":"#08051d99";
+   x.strokeStyle=i===selected?"#fff":"#ffffff66";
+   x.lineWidth=i===selected?4:2;
+
+   roundedRectPath(bx,by,202,72,13);
+   x.fill();
+   x.stroke();
+
+   x.translate(bx+42,by+36);
+
+   if(game==="flappy"){
+     x.fillStyle=s.body;
+     x.strokeStyle=s.dark;
+     x.lineWidth=2;
+     x.beginPath();
+     x.ellipse(0,0,23,16,0,0,Math.PI*2);
+     x.fill();
+     x.stroke();
+
+     x.fillStyle="#fff";
+     x.beginPath();
+     x.arc(10,-6,6,0,Math.PI*2);
+     x.fill();
+
+     x.fillStyle="#171717";
+     x.beginPath();
+     x.arc(12,-6,2.5,0,Math.PI*2);
+     x.fill();
+
+     x.fillStyle=s.accent;
+     x.beginPath();
+     x.moveTo(18,-1);
+     x.lineTo(31,5);
+     x.lineTo(18,9);
+     x.closePath();
+     x.fill();
+   }else{
+     x.rotate(-Math.PI/4);
+     x.fillStyle=s.body;
+     x.strokeStyle=s.accent;
+     x.lineWidth=2;
+     x.beginPath();
+     x.moveTo(22,0);
+     x.lineTo(-14,-12);
+     x.lineTo(-14,12);
+     x.closePath();
+     x.fill();
+     x.stroke();
+   }
+
+   x.restore();
+
+   x.fillStyle="#fff";
+   x.font="800 15px Arial";
+   x.textAlign="left";
+   x.fillText((i+1)+". "+s.name,bx+78,by+42);
+ }
+
+ button(665,"FORTSÄTT","#7048e8");
+}
+
+</script>
+</body>
+</html>
+bbGrid=Array.from(
+  {length:8},
+  ()=>Array(8).fill(0)
+);
+
+bbPieces=[];
+
+for(let i=0;i<3;i++){
+  bbPieces.push(randomPiece());
+}
+
+bbSelected=-1;
+bbOver=false;
+bbParticles=[];
+bbRings=[];
+}
+
+/* 3x3-block finns bland formerna */
+const BB_SHAPES=[
+ [[1,1,1],[1,1,1],[1,1,1]],
+ [[1]],
+ [[1,1]],
+ [[1,1,1]],
+ [[1,1,1,1]],
+ [[1,1],[1,1]],
+ [[1,1,1],[0,1,0]],
+ [[1,0],[1,1]],
+ [[1,1,0],[0,1,1]],
+ [[1,1,1],[1,0,0]],
+ [[1,1],[1,1],[0,1]]
+];
+
+function randomPiece(){
+
+ const shapes=[
+  [[1]],
+  [[1,1]],
+  [[1,1,1]],
+  [[1,1,1,1]],
+  [[1,1,1,1,1]],
+  [[1,1],[1,1]],
+  [[1,0],[1,1]],
+  [[0,1],[1,1]],
+  [[1,1],[1,0]],
+  [[1,1],[0,1]],
+  [[1,1,1],[0,1,0]],
+  [[1,1,1],[1,0,0]],
+  [[1,1,1],[0,0,1]],
+  [[1,0,0],[1,1,1]],
+  [[0,0,1],[1,1,1]],
+  [[1,0,1],[1,1,1]],
+  [[1,1,1],[1,1,1],[1,1,1]]
+ ];
+
+ const colors=[
+   "#168bff",
+   "#36b5ff",
+   "#1765e8",
+   "#65d5ff",
+   "#287cff"
+ ];
+
+ const shape=shapes[
+   Math.floor(Math.random()*shapes.length)
+ ];
+
+ const color=colors[
+   Math.floor(Math.random()*colors.length)
+ ];
+
+ return shape.map(
+   row=>row.map(v=>v?color:0)
+ );
+}
+
+function bbCanPlace(shape,r,c){
+
+ for(
+   let y=0;
+   y<shape.length;
+   y++
+ ){
+   for(
+     let z=0;
+     z<shape[y].length;
+     z++
+   ){
+     if(shape[y][z]){
+
+       if(
+         r+y<0||
+         r+y>=8||
+         c+z<0||
+         c+z>=8||
+         bbGrid[r+y][c+z]
+       ){
+         return false;
+       }
+     }
+   }
+ }
+
+ return true;
+}
+
+function bbSpawnBurst(cells){
+
+ const seen=new Set();
+
+ for(const cell of cells){
+
+   const key=cell.r+":"+cell.c;
+
+   if(seen.has(key))continue;
+   seen.add(key);
+
+   const px=
+     42+
+     cell.c*52+
+     24.5;
+
+   const py=
+     145+
+     cell.r*52+
+     24.5;
+
+   const color=
+     cell.color||
+     "#58caff";
+
+   for(let i=0;i<5;i++){
+
+     const a=
+       Math.random()*Math.PI*2;
+
+     const spd=
+       35+
+       Math.random()*115;
+
+     bbParticles.push({
+       x:px,
+       y:py,
+       vx:Math.cos(a)*spd,
+       vy:Math.sin(a)*spd,
+       life:.28+Math.random()*.3,
+       max:.58,
+       color,
+       r:2+Math.random()*3
+     });
+   }
+ }
+
+ if(cells.length){
+
+   const avg=cells.reduce(
+     (a,b)=>({
+       x:a.x+42+b.c*52+24.5,
+       y:a.y+145+b.r*52+24.5
+     }),
+     {x:0,y:0}
+   );
+
+   bbRings.push({
+     x:avg.x/cells.length,
+     y:avg.y/cells.length,
+     life:.32,
+     max:.32
+   });
+ }
+}
+
+/*
+  BLOCK BLAST
+  Viktigt:
+  När en rad rensas flyttas INGA andra block.
+  Rutorna töms på exakt samma position.
+*/
+function bbPlace(shape,r,c){
+
+ for(let y=0;y<shape.length;y++){
+   for(let z=0;z<shape[y].length;z++){
+     if(shape[y][z]){
+       bbGrid[r+y][c+z]=shape[y][z];
+     }
+   }
+ }
+
+ let cleared=0;
+ let burstCells=[];
+
+ /* Rensa fulla rader utan gravity */
+ for(let row=0;row<8;row++){
+
+   if(bbGrid[row].every(Boolean)){
+
+     for(let col=0;col<8;col++){
+       burstCells.push({
+         r:row,
+         c:col,
+         color:bbGrid[row][col]
+       });
+
+       /*
+         Viktigt:
+         Vi sätter bara cellen till tom.
+         Vi splice:ar INTE raden.
+       */
+       bbGrid[row][col]=0;
+     }
+
+     cleared++;
+   }
+ }
+
+ /* Rensa fulla kolumner utan att flytta något */
+ for(let col=0;col<8;col++){
+
+   let full=true;
+
+   for(let row=0;row<8;row++){
+     if(!bbGrid[row][col]){
+       full=false;
+       break;
+     }
+   }
+
+   if(full){
+
+     for(let row=0;row<8;row++){
+
+       if(bbGrid[row][col]){
+
+         burstCells.push({
+           r:row,
+           c:col,
+           color:bbGrid[row][col]
+         });
+
+         bbGrid[row][col]=0;
+       }
+     }
+
+     cleared++;
+   }
+ }
+
+ if(cleared){
+   bbSpawnBurst(burstCells);
+ }
+
+ score+=cleared*300+30;
+}
+
+/*
+  NULL = den biten är använd.
+  Ett nytt block skapas först när ALLA tre
+  gamla block har använts.
+*/
+function bbAnyMove(){
+
+ for(let p of bbPieces){
+
+   if(!p)continue;
+
+   for(let r=0;r<8;r++){
+
+     for(let c=0;c<8;c++){
+
+       if(bbCanPlace(p,r,c)){
+         return true;
+       }
+     }
+   }
+ }
+
+ return false;
+}
+
+function drawBlockBlast(){
+
+ let g=x.createLinearGradient(0,0,W,H);
+
+ g.addColorStop(0,"#07152c");
+ g.addColorStop(.55,"#0b2144");
+ g.addColorStop(1,"#061126");
+
+ x.fillStyle=g;
+ x.fillRect(0,0,W,H);
+
+ text("BLOCK BLAST",70,30);
+ text("Poäng: "+score,112,20);
+
+ const cell=52;
+ const ox=42;
+ const oy=145;
+
+ x.save();
+
+ x.shadowColor="#168bff";
+ x.shadowBlur=18;
+
+ x.fillStyle="#0d0b12";
+
+ roundedRectPath(
+   32,
+   135,
+   436,
+   426,
+   20
+ );
+
+ x.fill();
+
+ x.restore();
+
+ for(let r=0;r<8;r++){
+
+   for(let c2=0;c2<8;c2++){
+
+     x.fillStyle=
+       bbGrid[r][c2]||
+       "#24202a";
+
+     x.strokeStyle=
+       bbGrid[r][c2]
+       ?"#ffffff88"
+       :"#3b3543";
+
+     x.lineWidth=2;
+
+     roundedRectPath(
+       ox+c2*cell,
+       oy+r*cell,
+       49,
+       49,
+       9
+     );
+
+     x.fill();
+     x.stroke();
+
+     if(bbGrid[r][c2]){
+
+       x.fillStyle="#ffffff33";
+
+       x.fillRect(
+         ox+c2*cell+7,
+         oy+r*cell+6,
+         35,
+         7
+       );
+     }
+   }
+ }
+
+ /*
+   Förhandsvisning av blocket som dras.
+ */
+ if(
+   bbDragging&&
+   bbSelected>=0&&
+   bbPieces[bbSelected]
+ ){
+
+   const p=bbPieces[bbSelected];
+
+   const col=Math.round(
+     ((bbDragX-42)/52)-
+     (p[0].length-1)/2
+   );
+
+   const row=Math.round(
+     ((bbDragY-145)/52)-
+     (p.length-1)/2
+   );
+
+   const valid=bbCanPlace(
+     p,
+     row,
+     col
+   );
+
+   x.globalAlpha=.4;
+
+   for(let r=0;r<p.length;r++){
+
+     for(
+       let c3=0;
+       c3<p[r].length;
+       c3++
+     ){
+
+       if(p[r][c3]){
+
+         x.fillStyle=
+           valid
+           ?"#fff"
+           :"#ff3344";
+
+         roundedRectPath(
+           42+(col+c3)*52,
+           145+(row+r)*52,
+           49,
+           49,
+           9
+         );
+
+         x.fill();
+       }
+     }
+   }
+
+   x.globalAlpha=1;
+ }
+
+ x.fillStyle="#ffffffaa";
+ x.font="700 14px Arial";
+ x.textAlign="center";
+
+ x.fillText(
+   "DRA ETT BLOCK TILL BRÄDET",
+   W/2,
+   555
+ );
+
+ /*
+   De tre aktuella blocken.
+   Ett använt block visas inte.
+ */
+ for(let i=0;i<3;i++){
+
+   const p=bbPieces[i];
+
+   if(!p)continue;
+
+   const bx=60+i*150;
+   const by=585;
+
+   x.globalAlpha=
+     bbSelected===i?.35:1;
+
+   x.shadowColor="#168bff";
+   x.shadowBlur=
+     bbSelected===i?20:8;
+
+   for(let r=0;r<p.length;r++){
+
+     for(
+       let c3=0;
+       c3<p[r].length;
+       c3++
+     ){
+
+       if(p[r][c3]){
+
+         x.fillStyle=p[r][c3];
+         x.strokeStyle="#a9e5ff";
+         x.lineWidth=2;
+
+         roundedRectPath(
+           bx+c3*30,
+           by+r*30,
+           27,
+           27,
+           6
+         );
+
+         x.fill();
+         x.stroke();
+       }
+     }
+   }
+
+   x.shadowBlur=0;
+   x.globalAlpha=1;
+ }
+
+ /*
+   Stort block medan spelaren drar.
+ */
+ if(
+   bbDragging&&
+   bbSelected>=0&&
+   bbPieces[bbSelected]
+ ){
+
+   const p=bbPieces[bbSelected];
+
+   const bx=
+     bbDragX-
+     p[0].length*15;
+
+   const by=
+     bbDragY-
+     p.length*15;
+
+   x.globalAlpha=.92;
+   x.shadowColor="#168bff";
+   x.shadowBlur=18;
+
+   for(let r=0;r<p.length;r++){
+
+     for(
+       let c3=0;
+       c3<p[r].length;
+       c3++
+     ){
+
+       if(p[r][c3]){
+
+         x.fillStyle=p[r][c3];
+         x.strokeStyle="#a9e5ff";
+         x.lineWidth=1.5;
+
+         roundedRectPath(
+           bx+c3*30,
+           by+r*30,
+           27,
+           27,
+           6
+         );
+
+         x.fill();
+         x.stroke();
+       }
+     }
+   }
+
+   x.globalAlpha=1;
+   x.shadowBlur=0;
+ }
+
+ for(const ring of bbRings){
+
+   const progress=
+     1-ring.life/ring.max;
+
+   x.save();
+
+   x.globalAlpha=
+     Math.max(
+       0,
+       ring.life/ring.max
+     )*.7;
+
+   x.strokeStyle="#9be4ff";
+   x.lineWidth=3;
+   x.shadowColor="#168bff";
+   x.shadowBlur=14;
+
+   x.beginPath();
+
+   x.arc(
+     ring.x,
+     ring.y,
+     8+progress*38,
+     0,
+     Math.PI*2
+   );
+
+   x.stroke();
+   x.restore();
+ }
+
+ for(const particle of bbParticles){
+
+   x.save();
+
+   x.globalAlpha=
+     Math.max(
+       0,
+       particle.life/particle.max
+     );
+
+   x.fillStyle=particle.color;
+   x.shadowColor="#168bff";
+   x.shadowBlur=10;
+
+   x.beginPath();
+
+   x.arc(
+     particle.x,
+     particle.y,
+     particle.r*
+       Math.max(
+         .25,
+         particle.life/particle.max
+       ),
+     0,
+     Math.PI*2
+   );
+
+   x.fill();
+   x.restore();
+ }
+}
+
+function blockBlastInput(mx,my){
+
+ if(bbOver){
+
+   if(
+     mx>=55&&
+     mx<=445&&
+     my>=410&&
+     my<=535
+   ){
+     reset();
+   }
+
+   return;
+ }
+
+ if(my>=550&&my<=735){
+
+   const left=[25,175,325];
+
+   for(let i=0;i<3;i++){
+
+     if(
+       bbPieces[i]&&
+       mx>=left[i]&&
+       mx<=left[i]+150
+     ){
+
+       bbSelected=i;
+       bbDragging=true;
+       bbDragX=mx;
+       bbDragY=my;
+
+       return;
+     }
+   }
+ }
+}
+
+function bbMove(mx,my){
+
+ if(
+   bbDragging&&
+   bbSelected>=0&&
+   bbPieces[bbSelected]&&
+   !bbOver
+ ){
+   bbDragX=mx;
+   bbDragY=my;
+ }
+}
+
+/*
+  Här används blocket.
+  När ett block placerats sätts platsen till null.
+  Inget nytt block kommer förrän alla tre är använda.
+*/
+function bbDrop(mx,my){
+
+ if(
+   !bbDragging||
+   bbSelected<0||
+   !bbPieces[bbSelected]||
+   bbOver
+ ){
+   bbDragging=false;
+   return;
+ }
+
+ const cell=52;
+ const ox=42;
+ const oy=145;
+
+ const p=bbPieces[bbSelected];
+
+ const col=Math.round(
+   ((mx-ox)/cell)-
+   (p[0].length-1)/2
+ );
+
+ const row=Math.round(
+   ((my-oy)/cell)-
+   (p.length-1)/2
+ );
+
+ if(bbCanPlace(p,row,col)){
+
+   bbPlace(
+     p,
+     row,
+     col
+   );
+
+   /*
+     Blocket är nu förbrukat.
+   */
+   bbPieces[bbSelected]=null;
+
+   bbSelected=-1;
+
+   /*
+     Först när alla tre är använda
+     kommer tre nya block.
+   */
+   if(
+     bbPieces.every(
+       piece=>piece===null
+     )
+   ){
+
+     bbPieces=[
+       randomPiece(),
+       randomPiece(),
+       randomPiece()
+     ];
+   }
+
+   if(!bbAnyMove()){
+     bbOver=true;
+   }
+ }
+
+ bbDragging=false;
+}
+
+function updateBlockBlast(dt){
+
+ if(
+   !bbOver&&
+   !bbAnyMove()
+ ){
+   bbOver=true;
+ }
+
+ for(const p of bbParticles){
+
+   p.x+=p.vx*dt;
+   p.y+=p.vy*dt;
+
+   p.vx*=Math.max(
+     0,
+     1-3*dt
+   );
+
+   p.vy*=Math.max(
+     0,
+     1-3*dt
+   );
+
+   p.life-=dt;
+ }
+
+ bbParticles=
+   bbParticles.filter(
+     p=>p.life>0
+   );
+
+ for(const ring of bbRings){
+   ring.life-=dt;
+ }
+
+ bbRings=
+   bbRings.filter(
+     r=>r.life>0
+   );
+}
+
+
+/* =========================================================
+   FLAPPY BIRD - 10 OLIKA UTSEENDEN
+   ========================================================= */
+
+let flappySkin=0;
+
+const FLAPPY_SKINS=[
+ {
+   name:"KLASSISK",
+   body:"#ffd21f",
+   wing:"#eda900",
+   beak:"#f27b20",
+   eye:"#111",
+   outline:"#7b5900"
+ },
+ {
+   name:"BLÅ",
+   body:"#39a9ff",
+   wing:"#1477d4",
+   beak:"#ffcf38",
+   eye:"#111",
+   outline:"#07518f"
+ },
+ {
+   name:"RÖD",
+   body:"#ff4d5f",
+   wing:"#d9273e",
+   beak:"#ffd23f",
+   eye:"#111",
+   outline:"#8c1424"
+ },
+ {
+   name:"GRÖN",
+   body:"#49d66a",
+   wing:"#1fa747",
+   beak:"#ffd33d",
+   eye:"#111",
+   outline:"#116b2b"
+ },
+ {
+   name:"LILA",
+   body:"#b768ff",
+   wing:"#8039d1",
+   beak:"#ffcf3c",
+   eye:"#111",
+   outline:"#54208e"
+ },
+ {
+   name:"ROSA",
+   body:"#ff70c8",
+   wing:"#d63891",
+   beak:"#ffd03b",
+   eye:"#111",
+   outline:"#8f1e60"
+ },
+ {
+   name:"ORANGE",
+   body:"#ff8a32",
+   wing:"#d75a13",
+   beak:"#ffe047",
+   eye:"#111",
+   outline:"#8c3509"
+ },
+ {
+   name:"CYAN",
+   body:"#31e0df",
+   wing:"#12aaa9",
+   beak:"#ffdb45",
+   eye:"#111",
+   outline:"#08706f"
+ },
+ {
+   name:"GULD",
+   body:"#ffe45b",
+   wing:"#d6a900",
+   beak:"#ff7734",
+   eye:"#111",
+   outline:"#846900"
+ },
+ {
+   name:"NEON",
+   body:"#baff3b",
+   wing:"#55c90c",
+   beak:"#ff4bd8",
+   eye:"#111",
+   outline:"#398000"
+ }
+];
+
+/*
+  Flappy Bird väljer nu färg/utseende
+  innan svårighetsmenyn.
+ */
+function drawAppearance(){
+
+ let g=x.createLinearGradient(
+   0,0,
+   0,H
+ );
+
+ g.addColorStop(0,"#31b8d7");
+ g.addColorStop(1,"#dffbff");
+
+ x.fillStyle=g;
+ x.fillRect(0,0,W,H);
+
+ drawCloud(75,100,.8);
+ drawCloud(390,190,.65);
+
+ backButton();
+
+ x.save();
+
+ x.shadowColor="#087c9c";
+ x.shadowBlur=22;
+ x.fillStyle="#fff";
+ x.font="1000 40px Arial";
+ x.textAlign="center";
+
+ x.fillText(
+   "VÄLJ KARAKTÄR",
+   W/2,
+   82
+ );
+
+ x.restore();
+
+ x.fillStyle="#ffffffdd";
+ x.font="700 16px Arial";
+ x.textAlign="center";
+
+ x.fillText(
+   "Välj hur din fågel ska se ut",
+   W/2,
+   112
+ );
+
+ /*
+   10 rutor:
+   2 kolumner x 5 rader.
+ */
+ const startX=35;
+ const startY=145;
+ const boxW=205;
+ const boxH=95;
+ const gapX=20;
+ const gapY=12;
+
+ for(let i=0;i<10;i++){
+
+   const col=i%2;
+   const row=Math.floor(i/2);
+
+   const bx=
+     startX+
+     col*(boxW+gapX);
+
+   const by=
+     startY+
+     row*(boxH+gapY);
+
+   const selected=
+     flappySkin===i;
+
+   x.save();
+
+   x.fillStyle=
+     selected
+     ?"rgba(30,150,190,.8)"
+     :"rgba(255,255,255,.48)";
+
+   x.strokeStyle=
+     selected
+     ?"rgba(255,255,255,1)"
+     :"rgba(255,255,255,.8)";
+
+   x.lineWidth=
+     selected?4:2;
+
+   x.shadowColor=
+     selected
+     ?"rgba(0,130,180,.9)"
+     :"transparent";
+
+   x.shadowBlur=
+     selected?18:0;
+
+   roundedRectPath(
+     bx,
+     by,
+     boxW,
+     boxH,
+     17
+   );
+
+   x.fill();
+   x.stroke();
+
+   x.restore();
+
+   drawSkinPreview(
+     bx+58,
+     by+48,
+     i
+   );
+
+   x.fillStyle="#073b4c";
+   x.font="900 14px Arial";
+   x.textAlign="left";
+
+   x.fillText(
+     FLAPPY_SKINS[i].name,
+     bx+100,
+     by+54
+   );
+
+   if(selected){
+
+     x.fillStyle="#fff";
+     x.font="900 12px Arial";
+
+     x.fillText(
+       "VALD",
+       bx+100,
+       by+73
+     );
+   }
+ }
+
+ button(
+   682,
+   "FORTSÄTT",
+   "#26a85a"
+ );
+}
+
+function drawSkinPreview(px,py,index){
+
+ const s=FLAPPY_SKINS[index];
+
+ x.save();
+
+ x.translate(px,py);
+
+ x.fillStyle=s.body;
+ x.strokeStyle=s.outline;
+ x.lineWidth=2.5;
+
+ x.beginPath();
+ x.ellipse(
+   0,
+   0,
+   25,
+   18,
+   0,
+   0,
+   Math.PI*2
+ );
+ x.fill();
+ x.stroke();
+
+ x.fillStyle=s.wing;
+
+ x.beginPath();
+ x.ellipse(
+   -5,
+   7,
+   14,
+   7,
+   -.3,
+   0,
+   Math.PI*2
+ );
+ x.fill();
+ x.stroke();
+
+ x.fillStyle="#fff";
+
+ x.beginPath();
+ x.arc(
+   11,
+   -8,
+   8,
+   0,
+   Math.PI*2
+ );
+ x.fill();
+ x.stroke();
+
+ x.fillStyle=s.eye;
+
+ x.beginPath();
+ x.arc(
+   13,
+   -8,
+   3,
+   0,
+   Math.PI*2
+ );
+ x.fill();
+
+ x.fillStyle=s.beak;
+
+ x.beginPath();
+ x.moveTo(18,-2);
+ x.lineTo(38,5);
+ x.lineTo(18,11);
+ x.closePath();
+ x.fill();
+ x.stroke();
+
+ x.restore();
+}
+
+/*
+  Ersätter fågelritningen så att valt skin används.
+ */
+function drawBird(){
+
+ const s=
+   FLAPPY_SKINS[
+     Math.max(
+       0,
+       Math.min(
+         FLAPPY_SKINS.length-1,
+         flappySkin
+       )
+     )
+   ];
+
+ x.save();
+
+ x.translate(
+   bird.x,
+   bird.y
+ );
+
+ x.rotate(
+   bird.rot
+ );
+
+ x.fillStyle=s.body;
+ x.strokeStyle=s.outline;
+ x.lineWidth=3;
+
+ x.beginPath();
+
+ x.ellipse(
+   0,
+   0,
+   21,
+   16,
+   0,
+   0,
+   Math.PI*2
+ );
+
+ x.fill();
+ x.stroke();
+
+ x.fillStyle=s.wing;
+
+ x.beginPath();
+
+ x.ellipse(
+   -5,
+   7,
+   12,
+   6,
+   -.3,
+   0,
+   Math.PI*2
+ );
+
+ x.fill();
+ x.stroke();
+
+ x.fillStyle="#fff";
+
+ x.beginPath();
+
+ x.arc(
+   10,
+   -7,
+   7,
+   0,
+   Math.PI*2
+ );
+
+ x.fill();
+ x.stroke();
+
+ x.fillStyle=s.eye;
+
+ x.beginPath();
+
+ x.arc(
+   12,
+   -7,
+   3,
+   0,
+   Math.PI*2
+ );
+
+ x.fill();
+
+ x.fillStyle=s.beak;
+
+ x.beginPath();
+
+ x.moveTo(18,-2);
+ x.lineTo(35,5);
+ x.lineTo(18,10);
+ x.closePath();
+
+ x.fill();
+ x.stroke();
+
+ x.restore();
+}
+
+
+/* =========================================================
+   SPACE WAVES - SVÅRARE
+   ========================================================= */
+
+/*
+  Vi gör Space Waves svårare här utan att påverka
+  Flappy Birds fysik.
+ */
+const WAVE_SPEEDS={
+ easy:205,
+ normal:225,
+ hard:250,
+ extreme:280
+};
+
+/*
+  Lägg till ytterligare hinder i kartorna.
+ */
+(function(){
+
+ const extraSettings={
+   easy:{
+     minGap:125,
+     sawR:33,
+     spikeLen:98,
+     spikeW:34
+   },
+   normal:{
+     minGap:112,
+     sawR:36,
+     spikeLen:118,
+     spikeW:36
+   },
+   hard:{
+     minGap:98,
+     sawR:40,
+     spikeLen:142,
+     spikeW:39
+   },
+   extreme:{
+     minGap:86,
+     sawR:44,
+     spikeLen:165,
+     spikeW:42
+   }
+ };
+
+ for(
+   const key of [
+     "easy",
+     "normal",
+     "hard",
+     "extreme"
+   ]
+ ){
+
+   const cfg=
+     extraSettings[key];
+
+   const source=
+     MAPS[key];
+
+   const extra=[];
+
+   for(
+     let i=0;
+     i<source.length-1;
+     i++
+   ){
+
+     const a=source[i];
+     const b=source[i+1];
+
+     const gap=
+       b.x-a.x;
+
+     if(gap<cfg.minGap)continue;
+
+     /*
+       Extra hindret placeras nära nästa hinder.
+     */
+     const xx=
+       a.x+
+       Math.max(
+         cfg.minGap,
+         gap*.58
+       );
+
+     if(i%4===0){
+
+       extra.push({
+         type:"saw",
+         x:xx,
+         cy:160+(i%3)*205,
+         r:cfg.sawR
+       });
+
+     }else if(i%4===1){
+
+       extra.push({
+         type:"spike",
+         x:xx,
+         side:"bottom",
+         len:cfg.spikeLen,
+         w:cfg.spikeW
+       });
+
+     }else if(i%4===2){
+
+       extra.push({
+         type:"spike",
+         x:xx,
+         side:"top",
+         len:cfg.spikeLen,
+         w:cfg.spikeW
+       });
+
+     }else{
+
+       extra.push({
+         type:"wall",
+         x:xx,
+         top:220,
+         bottom:540,
+         w:32
+       });
+     }
+   }
+
+   MAPS[key]=
+     source
+       .concat(extra)
+       .sort(
+         (a,b)=>a.x-b.x
+       );
+ }
+})();
+
+/*
+  Nyare updateWaves med separata hastigheter.
+ */
+function updateWaves(dt){
+
+ const speed=
+   WAVE_SPEEDS[difficulty]||
+   225;
+
+ distance+=
+   speed*dt;
+
+ /*
+   Håll inne = upp.
+   Släpp = ner.
+ */
+ const waveSpeed=
+   D[difficulty].wave;
+
+ wave.vy=
+   held
+   ?-waveSpeed
+   :waveSpeed;
+
+ wave.y+=
+   wave.vy*dt;
+
+ trail.push({
+   x:distance+wave.x,
+   y:wave.y
+ });
+
+ while(trail.length>42)
+   trail.shift();
+
+ if(
+   wave.y-wave.size<=24||
+   wave.y+wave.size>=H-24
+ ){
+   die();
+   return;
+ }
+
+ for(const b of blocks){
+
+   const sx=
+     b.x-distance;
+
+   if(
+     sx<-100||
+     sx>W+120
+   )continue;
+
+   if(b.type==="wall"){
+
+     if(
+       wave.x+12>sx&&
+       wave.x-12<sx+b.w&&
+       (
+         wave.y-wave.size<b.top||
+         wave.y+wave.size>b.bottom
+       )
+     ){
+       die();
+       return;
+     }
+
+   }else if(b.type==="spike"){
+
+     if(
+       wave.x+12>sx&&
+       wave.x-12<sx+b.w
+     ){
+
+       if(
+         b.side==="top"&&
+         wave.y-wave.size<
+           24+b.len
+       ){
+         die();
+         return;
+       }
+
+       if(
+         b.side==="bottom"&&
+         wave.y+wave.size>
+           H-24-b.len
+       ){
+         die();
+         return;
+       }
+     }
+
+   }else if(b.type==="saw"){
+
+     const dx=
+       wave.x-sx;
+
+     const dy=
+       wave.y-b.cy;
+
+     const r=
+       b.r||32;
+
+     if(
+       dx*dx+dy*dy<
+       (r+12)*(r+12)
+     ){
+       die();
+       return;
+     }
+   }
+ }
+
+ if(
+   distance>=finishX
+ ){
+
+   score=100;
+   setScreen("dead");
+ }
+}
+
+
+/* =========================================================
+   GAME OVER + FORTSÄTT SPELA
+   ========================================================= */
+
+function drawDead(){
+
+ if(game==="flappy"){
+   drawFlappy();
+
+ }else if(game==="waves"){
+   drawWaves();
+
+ }else{
+   drawBlockBlast();
+ }
+
+ x.fillStyle="#05000acc";
+ x.fillRect(
+   0,
+   0,
+   W,
+   H
+ );
+
+ x.save();
+
+ x.shadowColor="#ff3d8d";
+ x.shadowBlur=28;
+
+ x.fillStyle="#fff";
+
+ x.font=
+   "1000 48px Arial";
+
+ x.textAlign="center";
+
+ x.fillText(
+   "GAME OVER",
+   W/2,
+   245
+ );
+
+ x.restore();
+
+ if(game==="flappy"){
+
+   text(
+     "Poäng: "+score,
+     295,
+     23
+   );
+
+ }else if(game==="waves"){
+
+   text(
+     "Bana: "+
+     Math.floor(
+       Math.min(
+         100,
+         distance/finishX*100
+       )
+     )+"%",
+     295,
+     22
+   );
+
+ }else{
+
+   text(
+     "Poäng: "+score,
+     295,
+     22
+   );
+ }
+
+ /*
+   Ny knapp:
+   exakt samma spel + samma svårighetsgrad.
+ */
+ button(
+   330,
+   "FORTSÄTT SPELA",
+   "#269c60"
+ );
+
+ button(
+   410,
+   "VÄLJ SVÅRIGHET",
+   "#3478d1"
+ );
+
+ button(
+   490,
+   "BYT SPEL",
+   "#7048e8"
+ );
+
+ backButton();
+}
+
+
+/* =========================================================
+   NYTT ROUTER-SYSTEM
+   ========================================================= */
+
+/*
+  Flappy Bird går nu:
+  MENY
+    ↓
+  KARAKTÄR
+    ↓
+  SVÅRIGHET
+    ↓
+  SPEL
+ */
+function pickGame(g){
+
+ game=g;
+
+ if(g==="block"){
+
+   difficulty="normal";
+
+   reset();
+
+   held=false;
+
+   setScreen("play");
+
+ }else if(g==="flappy"){
+
+   flappySkin=0;
+
+   setScreen("appearance");
+
+ }else{
+
+   setScreen("difficulty");
+ }
+}
+
+
+/*
+  Ny draw-funktion som även visar
+  karaktärsmenyn.
+ */
+function draw(){
+
+ if(screen==="menu"){
+
+   drawMenu();
+
+ }else if(screen==="appearance"){
+
+   drawAppearance();
+
+ }else if(screen==="difficulty"){
+
+   drawDifficulty();
+
+ }else if(screen==="dead"){
+
+   drawDead();
+
+ }else if(game==="flappy"){
+
+   drawFlappy();
+
+ }else if(game==="waves"){
+
+   drawWaves();
+
+ }else{
+
+   drawBlockBlast();
+ }
+}
+
+
+/* =========================================================
+   INPUT - UPPDATERAD
+   ========================================================= */
+
+function input(mx,my){
+
+ /* ---------------- MENY ---------------- */
+
+ if(screen==="menu"){
+
+   if(
+     hitButton(
+       65,
+       270,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     pickGame("flappy");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   if(
+     hitButton(
+       65,
+       350,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     pickGame("waves");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   if(
+     hitButton(
+       65,
+       430,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     pickGame("block");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   return;
+ }
+
+
+ /* ---------------- KARAKTÄR ---------------- */
+
+ if(screen==="appearance"){
+
+   /*
+     Tillbaka till huvudmenyn.
+   */
+   if(
+     hitButton(
+       0,
+       0,
+       95,
+       95,
+       mx,
+       my
+     )
+   ){
+
+     menu();
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   const startX=35;
+   const startY=145;
+   const boxW=205;
+   const boxH=95;
+   const gapX=20;
+   const gapY=12;
+
+   /*
+     Kontrollera vilken av de 10 rutorna
+     som trycktes.
+   */
+   for(let i=0;i<10;i++){
+
+     const col=i%2;
+     const row=Math.floor(i/2);
+
+     const bx=
+       startX+
+       col*(boxW+gapX);
+
+     const by=
+       startY+
+       row*(boxH+gapY);
+
+     if(
+       hitButton(
+         bx,
+         by,
+         boxW,
+         boxH,
+         mx,
+         my
+       )
+     ){
+
+       flappySkin=i;
+
+       suppressPointerUp=true;
+
+       return;
+     }
+   }
+
+   /*
+     Fortsätt till svårighet.
+   */
+   if(
+     hitButton(
+       65,
+       682,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     setScreen("difficulty");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   return;
+ }
+
+
+ /* ---------------- SVÅRIGHET ---------------- */
+
+ if(screen==="difficulty"){
+
+   if(
+     hitButton(
+       0,
+       0,
+       95,
+       95,
+       mx,
+       my
+     )
+   ){
+
+     menu();
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   if(
+     hitButton(
+       65,
+       220,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     start("easy");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   if(
+     hitButton(
+       65,
+       300,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     start("normal");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   if(
+     hitButton(
+       65,
+       380,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     start("hard");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   if(
+     hitButton(
+       65,
+       460,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     start("extreme");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   return;
+ }
+
+
+ /* ---------------- GAME OVER ---------------- */
+
+ if(screen==="dead"){
+
+   if(
+     hitButton(
+       0,
+       0,
+       95,
+       95,
+       mx,
+       my
+     )
+   ){
+
+     menu();
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   /*
+     FORTSÄTT SPELA
+     Behåller samma game och difficulty.
+   */
+   if(
+     hitButton(
+       65,
+       330,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     start(difficulty);
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   /*
+     Välj annan svårighetsgrad.
+   */
+   if(
+     hitButton(
+       65,
+       410,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     setScreen("difficulty");
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   /*
+     Byt spel.
+   */
+   if(
+     hitButton(
+       65,
+       490,
+       370,
+       62,
+       mx,
+       my
+     )
+   ){
+
+     menu();
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   return;
+ }
+
+
+ /* ---------------- SPEL ---------------- */
+
+ if(screen==="play"){
+
+   if(
+     hitButton(
+       0,
+       0,
+       95,
+       95,
+       mx,
+       my
+     )
+   ){
+
+     menu();
+
+     suppressPointerUp=true;
+
+     return;
+   }
+
+   if(game==="flappy"){
+
+     bird.vy=
+       D[difficulty].flap;
+
+   }else if(game==="waves"){
+
+     held=true;
+
+   }else{
+
+     blockBlastInput(
+       mx,
+       my
+     );
+   }
+ }
+}
+
+
+/* =========================================================
+   TOUCH / MUS
+   ========================================================= */
+
+function canvasPoint(e){
+
+ const r=
+   c.getBoundingClientRect();
+
+ return {
+   mx:
+     (e.clientX-r.left)*
+     W/r.width,
+
+   my:
+     (e.clientY-r.top)*
+     H/r.height
+ };
+}
+
+c.addEventListener(
+ "pointerdown",
+ e=>{
+
+   e.preventDefault();
+
+   try{
+     c.setPointerCapture(
+       e.pointerId
+     );
+   }catch(_){}
+
+   suppressPointerUp=false;
+
+   const p=
+     canvasPoint(e);
+
+   input(
+     p.mx,
+     p.my
+   );
+ },
+ {passive:false}
+);
+
+c.addEventListener(
+ "pointermove",
+ e=>{
+
+   e.preventDefault();
+
+   if(
+     screen!=="play"||
+     game!=="block"
+   )return;
+
+   const p=
+     canvasPoint(e);
+
+   bbMove(
+     p.mx,
+     p.my
+   );
+ },
+ {passive:false}
+);
+
+c.addEventListener(
+ "pointerup",
+ e=>{
+
+   e.preventDefault();
+
+   const p=
+     canvasPoint(e);
+
+   if(suppressPointerUp){
+
+     suppressPointerUp=false;
+
+     try{
+       c.releasePointerCapture(
+         e.pointerId
+       );
+     }catch(_){}
+
+     return;
+   }
+
+   if(
+     screen==="play"&&
+     game==="waves"
+   ){
+
+     held=false;
+   }
+
+   if(
+     screen==="play"&&
+     game==="block"
+   ){
+
+     bbDrop(
+       p.mx,
+       p.my
+     );
+   }
+
+   try{
+     c.releasePointerCapture(
+       e.pointerId
+     );
+   }catch(_){}
+ },
+ {passive:false}
+);
+
+c.addEventListener(
+ "pointercancel",
+ e=>{
+
+   suppressPointerUp=false;
+
+   if(game==="waves"){
+     held=false;
+   }
+
+   if(game==="block"){
+     bbDragging=false;
+   }
+
+   try{
+     c.releasePointerCapture(
+       e.pointerId
+     );
+   }catch(_){}
+ },
+ {passive:false}
+);
+
+window.addEventListener(
+ "blur",
+ ()=>{
+
+   held=false;
+
+   if(game==="block"){
+     bbDragging=false;
+   }
+ }
+);
+
+document.addEventListener(
+ "visibilitychange",
+ ()=>{
+
+   if(document.hidden){
+
+     held=false;
+
+     if(game==="block"){
+       bbDragging=false;
+     }
+   }
+ }
+);
+
+c.addEventListener(
+ "touchstart",
+ e=>e.preventDefault(),
+ {passive:false}
+);
+
+
+/* =========================================================
+   TANGENTBORD
+   ========================================================= */
+
+document.addEventListener(
+ "keydown",
+ e=>{
+
+   if(
+     e.code==="Space"||
+     e.code==="ArrowUp"||
+     e.code==="KeyW"||
+     e.key===" "||
+     e.key==="ArrowUp"||
+     e.key==="w"||
+     e.key==="W"
+   ){
+
+     e.preventDefault();
+
+     /*
+       Bara spelet reagerar på space/up.
+     */
+     if(screen==="play"){
+
+       if(game==="flappy"){
+
+         if(!e.repeat){
+
+           bird.vy=
+             D[difficulty].flap;
+         }
+
+       }else if(game==="waves"){
+
+         held=true;
+       }
+     }
+   }
+ },
+ {
+   capture:true,
+   passive:false
+ }
+);
+
+document.addEventListener(
+ "keyup",
+ e=>{
+
+   if(
+     e.code==="Space"||
+     e.code==="ArrowUp"||
+     e.code==="KeyW"||
+     e.key===" "||
+     e.key==="ArrowUp"||
+     e.key==="w"||
+     e.key==="W"
+   ){
+
+     e.preventDefault();
+
+     if(game==="waves"){
+
+       held=false;
+     }
+   }
+ },
+ {
+   capture:true,
+   passive:false
+ }
+);
+
+
+/* =========================================================
+   START
+   ========================================================= */
+
+menu();
+
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
